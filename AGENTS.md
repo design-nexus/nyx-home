@@ -13,4 +13,4 @@ Native GTK 4 application for Home Assistant and Linux desktop automation.
   Secret Service and report unavailable/locked storage clearly.
 - Keep provider traffic off the GTK main thread and redact errors before display.
 - Run focused checks only. Do not download models or run inference for routine work.
-- Install app updates without opening/restarting the app.
+- Install app updates without opening/restarting the app. Restarting background services after installation is allowed.
