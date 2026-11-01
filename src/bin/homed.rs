@@ -676,7 +676,11 @@ struct Devices {
     rooms: tokio::sync::Mutex<Option<(std::time::Instant, RoomCache)>>,
 }
 
-type RoomCache = (std::collections::HashMap<String, String>, Vec<String>, Vec<String>);
+type RoomCache = (
+    std::collections::HashMap<String, String>,
+    Vec<String>,
+    Vec<String>,
+);
 
 impl Devices {
     async fn client(&self) -> std::result::Result<HybridClient, String> {
@@ -699,7 +703,11 @@ impl Devices {
             return Ok(cache.clone());
         }
         let lists = client
-            .ws_lists(&["config/entity_registry/list", "config/device_registry/list", "config/area_registry/list"])
+            .ws_lists(&[
+                "config/entity_registry/list",
+                "config/device_registry/list",
+                "config/area_registry/list",
+            ])
             .await?;
         let cache = nyx_home::devices::rooms(&lists[0], &lists[1], &lists[2]);
         *r = Some((std::time::Instant::now(), cache.clone()));
@@ -731,11 +739,16 @@ impl Devices {
             serde_json::from_str(data).map_err(dbus_error)?
         };
         if !nyx_home::devices::allowed(entity_id, service, &data) {
-            return Err(zbus::fdo::Error::AccessDenied(format!("{service} on {entity_id} isn't offered here")));
+            return Err(zbus::fdo::Error::AccessDenied(format!(
+                "{service} on {entity_id} isn't offered here"
+            )));
         }
         let domain = entity_id.split_once('.').map_or("", |d| d.0);
         let client = self.client().await.map_err(dbus_error)?;
-        client.call_with(domain, service, entity_id, data).await.map_err(dbus_error)
+        client
+            .call_with(domain, service, entity_id, data)
+            .await
+            .map_err(dbus_error)
     }
 }
 

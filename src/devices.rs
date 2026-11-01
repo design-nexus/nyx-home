@@ -54,14 +54,23 @@ pub struct Snapshot {
 const DOMAINS: [&str; 5] = ["light", "switch", "fan", "climate", "scene"];
 
 /// Where each entity is: its own room, else its device's, by entity id.
-pub fn rooms(entity_registry: &Value, device_registry: &Value, area_registry: &Value) -> (HashMap<String, String>, Vec<String>, Vec<String>) {
+pub fn rooms(
+    entity_registry: &Value,
+    device_registry: &Value,
+    area_registry: &Value,
+) -> (HashMap<String, String>, Vec<String>, Vec<String>) {
     let areas: HashMap<&str, &str> = area_registry
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|a| Some((a["area_id"].as_str()?, a["name"].as_str()?)))
         .collect();
-    let order: Vec<String> = area_registry.as_array().into_iter().flatten().filter_map(|a| a["name"].as_str().map(str::to_string)).collect();
+    let order: Vec<String> = area_registry
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|a| a["name"].as_str().map(str::to_string))
+        .collect();
     let device_area: HashMap<&str, &str> = device_registry
         .as_array()
         .into_iter()
@@ -71,12 +80,21 @@ pub fn rooms(entity_registry: &Value, device_registry: &Value, area_registry: &V
     let mut room = HashMap::new();
     let mut hidden = Vec::new();
     for e in entity_registry.as_array().into_iter().flatten() {
-        let Some(id) = e["entity_id"].as_str() else { continue };
-        if !e["hidden_by"].is_null() || !e["disabled_by"].is_null() || !e["entity_category"].is_null() {
+        let Some(id) = e["entity_id"].as_str() else {
+            continue;
+        };
+        if !e["hidden_by"].is_null()
+            || !e["disabled_by"].is_null()
+            || !e["entity_category"].is_null()
+        {
             hidden.push(id.to_string());
             continue;
         }
-        let area = e["area_id"].as_str().or_else(|| e["device_id"].as_str().and_then(|d| device_area.get(d).copied()));
+        let area = e["area_id"].as_str().or_else(|| {
+            e["device_id"]
+                .as_str()
+                .and_then(|d| device_area.get(d).copied())
+        });
         if let Some(name) = area.and_then(|a| areas.get(a)) {
             room.insert(id.to_string(), name.to_string());
         }
@@ -85,10 +103,17 @@ pub fn rooms(entity_registry: &Value, device_registry: &Value, area_registry: &V
 }
 
 /// Build the snapshot from `/api/states` and the room lookup.
-pub fn snapshot(states: &[Value], room: &HashMap<String, String>, hidden: &[String], order: &[String]) -> Snapshot {
+pub fn snapshot(
+    states: &[Value],
+    room: &HashMap<String, String>,
+    hidden: &[String],
+    order: &[String],
+) -> Snapshot {
     let mut snap = Snapshot::default();
     for s in states {
-        let Some(id) = s["entity_id"].as_str() else { continue };
+        let Some(id) = s["entity_id"].as_str() else {
+            continue;
+        };
         let domain = id.split_once('.').map_or("", |d| d.0);
         if !DOMAINS.contains(&domain) || hidden.iter().any(|h| h == id) {
             continue;
@@ -98,38 +123,66 @@ pub fn snapshot(states: &[Value], room: &HashMap<String, String>, hidden: &[Stri
         // (the usual way to set one up), the group is the light.
         if domain == "light"
             && let Some(members) = a["entity_id"].as_array().filter(|m| !m.is_empty())
-            && members.iter().filter_map(Value::as_str).any(|m| !hidden.iter().any(|h| h == m))
+            && members
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|m| !hidden.iter().any(|h| h == m))
         {
             continue;
         }
         let name = a["friendly_name"].as_str().unwrap_or(id).to_string();
         let r = room.get(id).cloned();
         if domain == "scene" {
-            snap.scenes.push(Scene { id: id.into(), name, room: r });
+            snap.scenes.push(Scene {
+                id: id.into(),
+                name,
+                room: r,
+            });
             continue;
         }
         let state = s["state"].as_str().unwrap_or("");
-        let modes: Vec<&str> = a["supported_color_modes"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        let modes: Vec<&str> = a["supported_color_modes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
         let color = a["rgb_color"].as_array().and_then(|c| {
-            let v: Vec<u8> = c.iter().filter_map(|x| x.as_u64().map(|n| n.min(255) as u8)).collect();
+            let v: Vec<u8> = c
+                .iter()
+                .filter_map(|x| x.as_u64().map(|n| n.min(255) as u8))
+                .collect();
             (v.len() == 3).then(|| [v[0], v[1], v[2]])
         });
         snap.devices.push(Device {
             id: id.into(),
             name,
             domain: domain.into(),
-            on: if domain == "climate" { state != "off" && !state.is_empty() } else { state == "on" },
+            on: if domain == "climate" {
+                state != "off" && !state.is_empty()
+            } else {
+                state == "on"
+            },
             available: state != "unavailable" && state != "unknown",
             room: r,
-            brightness: a["brightness"].as_f64().map(|b| (b / 255.0).clamp(0.0, 1.0)),
+            brightness: a["brightness"]
+                .as_f64()
+                .map(|b| (b / 255.0).clamp(0.0, 1.0)),
             color,
             dimmable: domain == "light" && modes.iter().any(|m| *m != "onoff"),
-            colorable: modes.iter().any(|m| matches!(*m, "hs" | "rgb" | "rgbw" | "rgbww" | "xy")),
+            colorable: modes
+                .iter()
+                .any(|m| matches!(*m, "hs" | "rgb" | "rgbw" | "rgbww" | "xy")),
             target: a["temperature"].as_f64(),
             current: a["current_temperature"].as_f64(),
         });
     }
-    let used: Vec<&String> = snap.devices.iter().filter_map(|d| d.room.as_ref()).chain(snap.scenes.iter().filter_map(|s| s.room.as_ref())).collect();
+    let used: Vec<&String> = snap
+        .devices
+        .iter()
+        .filter_map(|d| d.room.as_ref())
+        .chain(snap.scenes.iter().filter_map(|s| s.room.as_ref()))
+        .collect();
     snap.rooms = order.iter().filter(|r| used.contains(r)).cloned().collect();
     snap
 }
@@ -138,10 +191,15 @@ pub fn snapshot(states: &[Value], room: &HashMap<String, String>, hidden: &[Stri
 /// Home Assistant is asked.
 pub fn allowed(entity_id: &str, service: &str, data: &Value) -> bool {
     let domain = entity_id.split_once('.').map_or("", |d| d.0);
-    let keys_ok = |keys: &[&str]| data.as_object().is_none_or(|m| m.keys().all(|k| keys.contains(&k.as_str())));
+    let keys_ok = |keys: &[&str]| {
+        data.as_object()
+            .is_none_or(|m| m.keys().all(|k| keys.contains(&k.as_str())))
+    };
     match (domain, service) {
         ("light", "turn_on") => keys_ok(&["brightness_pct", "rgb_color"]),
-        ("light" | "switch" | "fan", "turn_off") | ("switch" | "fan", "turn_on") | ("scene", "turn_on") => keys_ok(&[]),
+        ("light" | "switch" | "fan", "turn_off")
+        | ("switch" | "fan", "turn_on")
+        | ("scene", "turn_on") => keys_ok(&[]),
         ("climate", "set_temperature") => keys_ok(&["temperature"]),
         _ => false,
     }
@@ -190,14 +248,22 @@ mod tests {
         ];
         let s = snapshot(&states, &room, &hidden, &order);
         let ids: Vec<&str> = s.devices.iter().map(|d| d.id.as_str()).collect();
-        assert_eq!(ids, vec!["light.ceiling", "light.lamp", "climate.heat"], "no groups, config entities or sensors");
+        assert_eq!(
+            ids,
+            vec!["light.ceiling", "light.lamp", "climate.heat"],
+            "no groups, config entities or sensors"
+        );
         assert!((s.devices[0].brightness.unwrap() - 0.698).abs() < 0.01);
         assert!(s.devices[0].dimmable && !s.devices[0].colorable);
         assert_eq!(s.devices[1].color, Some([157, 123, 255]));
         assert!(s.devices[2].on);
         assert_eq!(s.devices[2].target, Some(21.5));
         assert_eq!(s.scenes[0].room.as_deref(), Some("Living room"));
-        assert_eq!(s.rooms, vec!["Living room", "Bedroom"], "only rooms with something in them");
+        assert_eq!(
+            s.rooms,
+            vec!["Living room", "Bedroom"],
+            "only rooms with something in them"
+        );
     }
 
     #[test]
@@ -211,16 +277,32 @@ mod tests {
         ];
         let s = snapshot(&states, &HashMap::new(), &hidden, &[]);
         let ids: Vec<&str> = s.devices.iter().map(|d| d.id.as_str()).collect();
-        assert_eq!(ids, vec!["light.kitchen", "light.c"], "the group of hidden lights, not the mixed one");
+        assert_eq!(
+            ids,
+            vec!["light.kitchen", "light.c"],
+            "the group of hidden lights, not the mixed one"
+        );
     }
 
     #[test]
     fn only_the_few_actions_are_allowed() {
-        assert!(allowed("light.lamp", "turn_on", &json!({"brightness_pct": 40})));
-        assert!(allowed("light.lamp", "turn_on", &json!({"rgb_color": [1, 2, 3]})));
+        assert!(allowed(
+            "light.lamp",
+            "turn_on",
+            &json!({"brightness_pct": 40})
+        ));
+        assert!(allowed(
+            "light.lamp",
+            "turn_on",
+            &json!({"rgb_color": [1, 2, 3]})
+        ));
         assert!(!allowed("light.lamp", "turn_on", &json!({"flash": "long"})));
         assert!(allowed("scene.evening", "turn_on", &json!({})));
-        assert!(allowed("climate.heat", "set_temperature", &json!({"temperature": 21})));
+        assert!(allowed(
+            "climate.heat",
+            "set_temperature",
+            &json!({"temperature": 21})
+        ));
         assert!(!allowed("lock.front", "unlock", &json!({})));
         assert!(!allowed("light.lamp", "toggle", &Value::Null));
     }

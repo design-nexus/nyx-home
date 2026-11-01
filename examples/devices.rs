@@ -2,14 +2,21 @@
 //! `cargo run --example devices`
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    nyx_core::app::init(nyx_core::app::App { slug: "nyx-home", name: "Home" });
+    nyx_core::app::init(nyx_core::app::App {
+        slug: "nyx-home",
+        name: "Home",
+    });
     let client = match nyx_home::hybrid::HybridClient::load().await {
         Ok(c) => c,
         Err(e) => return println!("not connected: {e}"),
     };
     let states = client.states().await.unwrap_or_default();
     let lists = client
-        .ws_lists(&["config/entity_registry/list", "config/device_registry/list", "config/area_registry/list"])
+        .ws_lists(&[
+            "config/entity_registry/list",
+            "config/device_registry/list",
+            "config/area_registry/list",
+        ])
         .await;
     let (room, hidden, order) = match &lists {
         Ok(l) => nyx_home::devices::rooms(&l[0], &l[1], &l[2]),

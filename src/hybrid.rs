@@ -129,9 +129,15 @@ impl HybridClient {
             .await
             .map_err(|_| "Home Assistant is offline".to_string())?;
         if !response.status().is_success() {
-            return Err(format!("Home Assistant refused the request ({})", response.status()));
+            return Err(format!(
+                "Home Assistant refused the request ({})",
+                response.status()
+            ));
         }
-        response.json().await.map_err(|_| "Home Assistant returned an unreadable state list".into())
+        response
+            .json()
+            .await
+            .map_err(|_| "Home Assistant returned an unreadable state list".into())
     }
 
     /// Run WebSocket list commands (`config/area_registry/list`, …) and return each
@@ -153,7 +159,11 @@ impl HybridClient {
             return Err("Unexpected Home Assistant handshake".into());
         }
         socket
-            .send(Message::Text(json!({"type":"auth","access_token":self.token}).to_string().into()))
+            .send(Message::Text(
+                json!({"type":"auth","access_token":self.token})
+                    .to_string()
+                    .into(),
+            ))
             .await
             .map_err(|_| "Home Assistant authentication failed".to_string())?;
         if next_json(&mut socket).await?["type"] != "auth_ok" {
@@ -163,7 +173,9 @@ impl HybridClient {
         for (i, command) in commands.iter().enumerate() {
             let id = i as u64 + 1;
             socket
-                .send(Message::Text(json!({"id": id, "type": command}).to_string().into()))
+                .send(Message::Text(
+                    json!({"id": id, "type": command}).to_string().into(),
+                ))
                 .await
                 .map_err(|_| "Home Assistant connection lost".to_string())?;
             loop {
