@@ -119,6 +119,96 @@ impl HybridClient {
         Ok(())
     }
 
+    /// Every entity's state (`GET /api/states`).
+    pub async fn states(&self) -> Result<Vec<Value>, String> {
+        let response = self
+            .http
+            .get(format!("{}/api/states", self.base))
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(|_| "Home Assistant is offline".to_string())?;
+        if !response.status().is_success() {
+            return Err(format!("Home Assistant refused the request ({})", response.status()));
+        }
+        response.json().await.map_err(|_| "Home Assistant returned an unreadable state list".into())
+    }
+
+    /// Run WebSocket list commands (`config/area_registry/list`, …) and return each
+    /// one's `result`, in order.
+    pub async fn ws_lists(&self, commands: &[&str]) -> Result<Vec<Value>, String> {
+        let mut url =
+            url::Url::parse(&self.base).map_err(|_| "Invalid Home Assistant URL".to_string())?;
+        url.set_scheme(if url.scheme() == "https" { "wss" } else { "ws" })
+            .map_err(|_| "Invalid Home Assistant URL".to_string())?;
+        url.set_path("/api/websocket");
+        let (mut socket, _) = tokio::time::timeout(
+            Duration::from_secs(12),
+            tokio_tungstenite::connect_async(url.as_str()),
+        )
+        .await
+        .map_err(|_| "Home Assistant connection timed out".to_string())?
+        .map_err(|_| "Home Assistant is offline".to_string())?;
+        if next_json(&mut socket).await?["type"] != "auth_required" {
+            return Err("Unexpected Home Assistant handshake".into());
+        }
+        socket
+            .send(Message::Text(json!({"type":"auth","access_token":self.token}).to_string().into()))
+            .await
+            .map_err(|_| "Home Assistant authentication failed".to_string())?;
+        if next_json(&mut socket).await?["type"] != "auth_ok" {
+            return Err("Home Assistant authentication failed".into());
+        }
+        let mut out = Vec::with_capacity(commands.len());
+        for (i, command) in commands.iter().enumerate() {
+            let id = i as u64 + 1;
+            socket
+                .send(Message::Text(json!({"id": id, "type": command}).to_string().into()))
+                .await
+                .map_err(|_| "Home Assistant connection lost".to_string())?;
+            loop {
+                let reply = next_json(&mut socket).await?;
+                if reply["id"].as_u64() == Some(id) {
+                    if reply["success"] != true {
+                        return Err(format!("Home Assistant refused {command}"));
+                    }
+                    out.push(reply["result"].clone());
+                    break;
+                }
+            }
+        }
+        let _ = socket.close(None).await;
+        Ok(out)
+    }
+
+    /// Call an action with service data (`{"brightness_pct": 40}`).
+    pub async fn call_with(
+        &self,
+        domain: &str,
+        service: &str,
+        entity_id: &str,
+        data: Value,
+    ) -> Result<(), String> {
+        let mut body = match data {
+            Value::Object(map) => map,
+            _ => Default::default(),
+        };
+        body.insert("entity_id".into(), entity_id.into());
+        let response = self
+            .http
+            .post(format!("{}/api/services/{domain}/{service}", self.base))
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|_| "Home Assistant is offline".to_string())?;
+        response
+            .status()
+            .is_success()
+            .then_some(())
+            .ok_or_else(|| format!("Home Assistant refused the action ({})", response.status()))
+    }
+
     pub async fn listen_events(
         &self,
         online: Arc<AtomicBool>,

@@ -667,6 +667,78 @@ struct Service {
     engine: Engine,
 }
 
+/// `Home.Devices1`: what the Control Center's Home tile shows and changes.
+#[derive(Default)]
+struct Devices {
+    client: tokio::sync::Mutex<Option<HybridClient>>,
+    /// Where each entity is (from the registries, which change rarely): read again
+    /// every 10 minutes.
+    rooms: tokio::sync::Mutex<Option<(std::time::Instant, RoomCache)>>,
+}
+
+type RoomCache = (std::collections::HashMap<String, String>, Vec<String>, Vec<String>);
+
+impl Devices {
+    async fn client(&self) -> std::result::Result<HybridClient, String> {
+        let mut c = self.client.lock().await;
+        if c.is_none() {
+            *c = Some(HybridClient::load().await?);
+        }
+        Ok(c.clone().expect("loaded"))
+    }
+
+    async fn forget_client(&self) {
+        *self.client.lock().await = None;
+    }
+
+    async fn room_cache(&self, client: &HybridClient) -> std::result::Result<RoomCache, String> {
+        let mut r = self.rooms.lock().await;
+        if let Some((at, cache)) = r.as_ref()
+            && at.elapsed() < Duration::from_secs(600)
+        {
+            return Ok(cache.clone());
+        }
+        let lists = client
+            .ws_lists(&["config/entity_registry/list", "config/device_registry/list", "config/area_registry/list"])
+            .await?;
+        let cache = nyx_home::devices::rooms(&lists[0], &lists[1], &lists[2]);
+        *r = Some((std::time::Instant::now(), cache.clone()));
+        Ok(cache)
+    }
+}
+
+#[interface(name = "io.github.design_nexus.nyx.Home.Devices1")]
+impl Devices {
+    async fn snapshot(&self) -> zbus::fdo::Result<String> {
+        let client = self.client().await.map_err(dbus_error)?;
+        let states = match client.states().await {
+            Ok(s) => s,
+            Err(e) => {
+                // A changed URL or token: load it again next time.
+                self.forget_client().await;
+                return Err(dbus_error(e));
+            }
+        };
+        let (room, hidden, order) = self.room_cache(&client).await.unwrap_or_default();
+        let snap = nyx_home::devices::snapshot(&states, &room, &hidden, &order);
+        serde_json::to_string(&snap).map_err(dbus_error)
+    }
+
+    async fn call(&self, entity_id: &str, service: &str, data: &str) -> zbus::fdo::Result<()> {
+        let data: serde_json::Value = if data.trim().is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_str(data).map_err(dbus_error)?
+        };
+        if !nyx_home::devices::allowed(entity_id, service, &data) {
+            return Err(zbus::fdo::Error::AccessDenied(format!("{service} on {entity_id} isn't offered here")));
+        }
+        let domain = entity_id.split_once('.').map_or("", |d| d.0);
+        let client = self.client().await.map_err(dbus_error)?;
+        client.call_with(domain, service, entity_id, data).await.map_err(dbus_error)
+    }
+}
+
 #[interface(name = "io.github.design_nexus.nyx.Home.Automation1")]
 impl Service {
     fn status(&self) -> String {
@@ -960,6 +1032,7 @@ async fn main() -> Result<()> {
                 engine: engine.clone(),
             },
         )?
+        .serve_at(nyx_home::devices::PATH, Devices::default())?
         .build()
         .await?;
     if let Ok(workflows) = engine.list() {
