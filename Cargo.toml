@@ -20,11 +20,11 @@ name = "nyx-homectl"
 path = "src/bin/homectl.rs"
 
 [dependencies]
-nyx-core = { git = "https://github.com/design-nexus/nyx-core.git", rev = "d78dba337fd753c4367d8f70ad0f080349b24ba9" }
-nyx-actions = { git = "https://github.com/design-nexus/nyx-core.git", rev = "d78dba337fd753c4367d8f70ad0f080349b24ba9", features = ["server"] }
-nyx-ui = { git = "https://github.com/design-nexus/nyx-design.git", rev = "048e7bf780be92f2fb149024844010af3fdc993e" }
-nyx-theme = { git = "https://github.com/design-nexus/nyx-design.git", rev = "048e7bf780be92f2fb149024844010af3fdc993e" }
-nyx-playback = { git = "https://github.com/design-nexus/nyx-design.git", rev = "048e7bf780be92f2fb149024844010af3fdc993e" }
+nyx-core = { git = "https://github.com/design-nexus/nyx-core.git", rev = "47c5e0f328b4042df4c08fc317510644a64d1124" }
+nyx-actions = { git = "https://github.com/design-nexus/nyx-core.git", rev = "47c5e0f328b4042df4c08fc317510644a64d1124", features = ["server"] }
+nyx-ui = { git = "https://github.com/design-nexus/nyx-design.git", rev = "d168cbfa57ee229df327f0c85abe5f4b75201b99" }
+nyx-theme = { git = "https://github.com/design-nexus/nyx-design.git", rev = "d168cbfa57ee229df327f0c85abe5f4b75201b99" }
+nyx-playback = { git = "https://github.com/design-nexus/nyx-design.git", rev = "d168cbfa57ee229df327f0c85abe5f4b75201b99" }
 async-channel = "2"
 futures-util = "0.3"
 gtk = { package = "gtk4", version = "0.11", features = ["v4_18"] }
