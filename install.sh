@@ -37,6 +37,14 @@ install_with_bindir() {
 install_binary "$root/target/release/nyx-home" "$bin_dir/nyx-home"
 install_binary "$root/target/release/nyx-homed" "$bin_dir/nyx-homed"
 install_binary "$root/target/release/nyx-homectl" "$bin_dir/nyx-homectl"
+# What Home does for nyx home …, Glimpse and the Assistant, answered by the daemon.
+install -d "$share_dir/nyx/actions"
+manifest="$share_dir/nyx/actions/io.github.design_nexus.nyx.Home.json"
+if timeout 10 "$bin_dir/nyx-homed" --describe-actions >"$manifest.tmp" 2>/dev/null; then
+  mv -f "$manifest.tmp" "$manifest"
+else
+  rm -f "$manifest.tmp"
+fi
 install -Dm644 "$root/data/io.github.design_nexus.nyx.Home.desktop" \
   "$share_dir/applications/io.github.design_nexus.nyx.Home.desktop"
 install -Dm644 "$root/data/icons/io.github.design_nexus.nyx.Home.svg" \

@@ -11,7 +11,8 @@ rm -f "$bin_dir/nyx-home" "$bin_dir/nyx-homed" "$bin_dir/nyx-homectl" \
   "$share_dir/applications/io.github.design_nexus.nyx.Home.desktop" \
   "$share_dir/icons/hicolor/scalable/apps/io.github.design_nexus.nyx.Home.svg" \
   "$share_dir/systemd/user/nyx-homed.service" \
-  "$share_dir/dbus-1/services/io.github.design_nexus.nyx.Home.Automation.service"
+  "$share_dir/dbus-1/services/io.github.design_nexus.nyx.Home.Automation.service" \
+  "$share_dir/nyx/actions/io.github.design_nexus.nyx.Home.json"
 if systemctl --user show-environment >/dev/null 2>&1; then
   systemctl --user daemon-reload
 fi

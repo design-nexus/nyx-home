@@ -20,6 +20,9 @@ use tokio::{
 use tracing::{error, info, warn};
 use zbus::interface;
 
+#[path = "homed/actions.rs"]
+mod actions;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 const SCHEMA: &str = "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS workflows (id TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, trigger TEXT NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, status TEXT NOT NULL, detail TEXT NOT NULL); CREATE INDEX IF NOT EXISTS runs_recent ON runs(started_at DESC); CREATE INDEX IF NOT EXISTS runs_workflow ON runs(workflow_id, started_at); CREATE TABLE IF NOT EXISTS run_nodes (run_id TEXT NOT NULL, node_id TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(run_id,node_id)); CREATE TABLE IF NOT EXISTS event_receipts (workflow_id TEXT NOT NULL, event_id TEXT NOT NULL, received_at INTEGER NOT NULL, PRIMARY KEY(workflow_id,event_id)); CREATE INDEX IF NOT EXISTS event_receipts_age ON event_receipts(received_at);";
@@ -732,7 +735,15 @@ impl Devices {
         serde_json::to_string(&snap).map_err(dbus_error)
     }
 
-    async fn call(&self, entity_id: &str, service: &str, data: &str) -> zbus::fdo::Result<()> {
+    async fn call(&self, entity_id: &str, service: &str, data: &str, #[zbus(header)] header: zbus::message::Header<'_>) -> zbus::fdo::Result<()> {
+        // Only Nyx programs switch things in the house.
+        let trusted = match actions::SERVER.get() {
+            Some(s) => s.caller(&header).await.trusted,
+            None => false,
+        };
+        if !trusted {
+            return Err(zbus::fdo::Error::AccessDenied("only Nyx programs may control devices".into()));
+        }
         let data: serde_json::Value = if data.trim().is_empty() {
             serde_json::Value::Null
         } else {
@@ -1020,6 +1031,7 @@ async fn home_events(engine: Engine) {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    nyx_core::control::describe_if_asked(&actions::description());
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -1048,6 +1060,9 @@ async fn main() -> Result<()> {
         .serve_at(nyx_home::devices::PATH, Devices::default())?
         .build()
         .await?;
+    if let Err(e) = actions::serve(&_connection, engine.clone()).await {
+        warn!("actions: {e}");
+    }
     if let Ok(workflows) = engine.list() {
         for workflow in workflows.iter().filter(|w| {
             w.enabled
