@@ -371,18 +371,10 @@ pub fn present(application: &gtk::Application) {
     stack.add_named(&activity.root, Some(Section::Activity.id()));
     stack.add_named(&connections.root, Some(Section::Connections.id()));
 
-    let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    body.set_vexpand(true);
-    body.append(&nav);
-    body.append(&stack);
-
-    let frame = widgets::vbox(0);
-    frame.add_css_class("window-frame");
-    frame.append(&header.root);
-    frame.append(&body);
-    let overlay = gtk::Overlay::new();
-    overlay.set_child(Some(&frame));
-    window.set_child(Some(&overlay));
+    let frame = nyx_ui::frame::AppFrame::new(&header.root);
+    frame.set_sidebar(&nav);
+    frame.set_page(&stack);
+    let overlay = frame.install(&window);
 
     let link = if prefs.home_url.is_empty() {
         Link::NotSetUp
