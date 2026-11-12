@@ -252,6 +252,26 @@ fn valid_url(text: &str) -> Option<String> {
     .then(|| base.to_string())
 }
 
+/// A plain-http address outside the home network: the token would cross the internet
+/// unencrypted. Private and loopback addresses, `.local`, `.lan`, `.home.arpa` and
+/// single-label names count as home.
+fn plain_http_outside_home(text: &str) -> bool {
+    let Ok(url) = url::Url::parse(text.trim()) else { return false };
+    if url.scheme() != "http" {
+        return false;
+    }
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => !(ip.is_private() || ip.is_loopback() || ip.is_link_local()),
+        Some(url::Host::Ipv6(ip)) => !(ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local()),
+        Some(url::Host::Domain(name)) => {
+            let name = name.trim_end_matches('.').to_ascii_lowercase();
+            let home = !name.contains('.') || [".local", ".lan", ".home.arpa", ".internal"].iter().any(|s| name.ends_with(s));
+            !home && name != "localhost"
+        }
+        None => false,
+    }
+}
+
 /// The connect dialog: an address and a token, checked with Home Assistant
 /// before anything is saved.
 pub fn dialog() {
@@ -278,6 +298,15 @@ pub fn dialog() {
     ])]);
     card.append(&url_label);
     card.append(&url);
+    let insecure = widgets::label(
+        "This address isn't on your home network and doesn't use https, so your token would cross the internet unencrypted. Use the https address (Nabu Casa or your own).",
+        "dim",
+    );
+    insecure.set_wrap(true);
+    insecure.add_css_class("error");
+    insecure.set_visible(plain_http_outside_home(&saved_base));
+    card.append(&insecure);
+    url.connect_changed(move |e| insecure.set_visible(plain_http_outside_home(&e.text())));
 
     let token_label = widgets::label("Long-lived access token", "field-label");
     let token = gtk::PasswordEntry::new();
@@ -435,6 +464,21 @@ pub fn dialog() {
         url.grab_focus();
     } else {
         token.grab_focus();
+    }
+}
+
+#[cfg(test)]
+mod http_tests {
+    use super::plain_http_outside_home as warn;
+
+    #[test]
+    fn plain_http_is_fine_at_home_only() {
+        for home in ["http://homeassistant.local:8123", "http://192.168.1.5:8123", "http://10.0.0.2", "http://ha:8123", "http://[fd00::1]:8123", "http://localhost:8123", "https://ha.example.com"] {
+            assert!(!warn(home), "{home}");
+        }
+        for away in ["http://ha.example.com", "http://203.0.113.4:8123", "http://my.duckdns.org:8123"] {
+            assert!(warn(away), "{away}");
+        }
     }
 }
 
