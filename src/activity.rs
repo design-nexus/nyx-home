@@ -15,7 +15,6 @@ use std::{
 
 pub struct Page {
     pub root: gtk::Widget,
-    pub actions: gtk::Box,
     stack: gtk::Stack,
     problem: gtk::Box,
     list: gtk::ListBox,
@@ -52,7 +51,10 @@ impl Page {
             .build();
         stack.add_named(&scroll, Some("list"));
 
-        let actions = widgets::hbox(6);
+        let bar = crate::bar::PageBar::new("Activity");
+        bar.subtitle
+            .set_text("What the desktop and hybrid automations did");
+        let actions = bar.actions.clone();
         let filter = widgets::segmented(
             &widgets::opts(&[("all", "All"), ("failed", "Failed")]),
             "all",
@@ -65,8 +67,8 @@ impl Page {
         );
         filter.update_property(&[gtk::accessible::Property::Label("Show runs")]);
         actions.append(&filter);
-        let refresh = widgets::bar_button("view-refresh-symbolic", "Refresh (F5)");
-        refresh.update_property(&[gtk::accessible::Property::Label("Refresh")]);
+        let refresh = crate::bar::button("view-refresh-symbolic", "Refresh");
+        refresh.set_tooltip_text(Some("Refresh (F5)"));
         refresh.connect_clicked(|_| {
             if let Some(app) = app::get() {
                 app.activity.reload();
@@ -74,8 +76,7 @@ impl Page {
         });
         actions.append(&refresh);
         Self {
-            root: stack.clone().upcast(),
-            actions,
+            root: bar.over(&stack),
             stack,
             problem,
             list,

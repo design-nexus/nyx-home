@@ -22,6 +22,11 @@ const SCENES: [&str; 8] = [
     "blue", "violet", "pink", "red", "coral", "amber", "green", "teal",
 ];
 
+/// Swatches rooms take, by the words in their names.
+const ROOMS: [&str; 9] = [
+    "violet", "coral", "blue", "amber", "red", "graphite", "green", "teal", "pink",
+];
+
 /// Defines `@kind_*` colors and the rules that use them. `swatches` are the
 /// theme's `(name, color)` pairs; a missing name falls back to `accent`.
 pub fn css(swatches: &[(String, String)], accent: &str) -> String {
@@ -39,13 +44,31 @@ pub fn css(swatches: &[(String, String)], accent: &str) -> String {
         css.push_str(&format!("@define-color {var} {color};\n"));
         css.push_str(&rules(&format!(".{class}"), &format!("@{var}")));
     }
-    // Scene tiles each take one of these, by a hash of their ID.
+    // Scene tiles and chips each take one of these, by a hash of their ID.
     for (i, name) in SCENES.iter().enumerate() {
         let color = swatch(name);
+        for scene in ["scene-tile", "scene-chip"] {
+            css.push_str(&format!(
+                "window.home-window .{scene}.scene-color-{i} {{ background: alpha({color}, 0.16); box-shadow: inset 0 0 0 1px alpha({color}, 0.3); }}
+window.home-window .{scene}.scene-color-{i}:hover {{ background: alpha({color}, 0.26); }}
+window.home-window .{scene}.scene-color-{i} image {{ color: {color}; }}
+"
+            ));
+        }
+    }
+    // A camera with no picture yet: two of the scene colors.
+    for i in 0..SCENES.len() {
+        let (a, b) = (swatch(SCENES[i]), swatch(SCENES[(i + 3) % SCENES.len()]));
         css.push_str(&format!(
-            "window.home-window .scene-tile.scene-color-{i} {{ background: alpha({color}, 0.16); box-shadow: inset 0 0 0 1px alpha({color}, 0.28); }}
-window.home-window .scene-tile.scene-color-{i}:hover {{ background: alpha({color}, 0.26); }}
-window.home-window .scene-tile.scene-color-{i} image {{ color: {color}; }}
+            "window.home-window .camera-blank.scene-color-{i} {{ background: linear-gradient(135deg, alpha({a}, 0.7), alpha({b}, 0.7)); }}\n"
+        ));
+    }
+    // Each room keeps a swatch (icons::room) for its icon.
+    for name in ROOMS {
+        let color = swatch(name);
+        css.push_str(&format!(
+            "window.home-window .room-{name} image.room-chip {{ color: {color}; background: alpha({color}, 0.18); }}
+window.home-window .room-{name} image.room-chip.big {{ color: @theme_bg; background: {color}; }}
 "
         ));
     }
@@ -68,6 +91,7 @@ fn rules(scope: &str, c: &str) -> String {
     format!(
         "window.home-window {scope} image.chip {{ color: {c}; background: alpha({c}, 0.16); }}
 window.home-window .device-card{scope}.on image.chip {{ color: @theme_bg; background: {c}; }}
+window.home-window .drawer-row{scope}.on image.chip, window.home-window .robot-row{scope}.on image.chip {{ color: @theme_bg; background: {c}; }}
 window.home-window .device-card{scope}.on {{ box-shadow: inset 0 0 0 1px alpha({c}, 0.45), 0 8px 24px -10px alpha({c}, 0.6); }}
 window.home-window .device-card{scope} scale trough highlight {{ background: {c}; }}
 window.home-window .device-card{scope} scale slider {{ background: {c}; }}

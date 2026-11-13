@@ -1,11 +1,12 @@
 //! Capability-driven presentation for Home Assistant devices.
 use crate::ha::Entity;
 
+/// The sections on Home, in their first order.
 pub const DASHBOARD_CARDS: [(&str, &str); 6] = [
-    ("summary", "Home status"),
-    ("favorites", "Favorites"),
-    ("cameras", "Cameras"),
+    ("scenes", "Scenes"),
+    ("rooms", "Rooms"),
     ("robots", "Robots"),
+    ("favorites", "Favorites"),
     ("energy", "Energy"),
     ("health", "Device health"),
 ];

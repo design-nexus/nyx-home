@@ -64,9 +64,9 @@ pub fn open(device_id: &str) {
             "non-starred-symbolic"
         },
         if favorite {
-            "On Overview"
+            "On Home"
         } else {
-            "Add to Overview"
+            "Add to Home"
         },
     );
     {
@@ -83,9 +83,9 @@ pub fn open(device_id: &str) {
                 }
                 if let Some(label) = content.last_child().and_downcast::<gtk::Label>() {
                     label.set_text(if added {
-                        "On Overview"
+                        "On Home"
                     } else {
-                        "Add to Overview"
+                        "Add to Home"
                     });
                 }
             }
@@ -588,9 +588,9 @@ pub fn toggle_favorite(device_id: &str) -> bool {
     });
     app::rebuild();
     app::toast(if added {
-        "Added to Overview."
+        "Added to Home."
     } else {
-        "Removed from Overview."
+        "Removed from Home."
     });
     added
 }

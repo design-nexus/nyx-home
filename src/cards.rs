@@ -384,8 +384,8 @@ fn finish(frame: &Frame, size: Size) {
     }
 }
 
-/// Run the watchers of one new card.
-fn notify_one(widget: &gtk::Widget, home: &Home) {
+/// Run the watchers of one new card (or room, or row).
+pub fn notify_one(widget: &gtk::Widget, home: &Home) {
     let mine: Vec<Update> = WATCHERS.with(|w| {
         w.borrow()
             .iter()
@@ -452,9 +452,6 @@ fn camera(frame: &Frame, device: &Device, home: &Home, show_area: bool, size: Si
     let charging =
         find(&|e| e.domain() == "binary_sensor" && device::device_class(e) == "battery_charging");
     let battery = find(&|e| e.domain() == "sensor" && device::device_class(e) == "battery");
-    let detection =
-        find(&|e| e.domain() == "event" && e.name().to_lowercase().ends_with("detection"));
-    let ring = find(&|e| e.domain() == "event" && device::device_class(e) == "doorbell");
     let make = |icon: &str, text: &str| {
         let chip = widgets::hbox(4);
         chip.add_css_class("indicator");
@@ -473,7 +470,7 @@ fn camera(frame: &Frame, device: &Device, home: &Home, show_area: bool, size: Si
     } else {
         make("battery-good-symbolic", "")
     };
-    let cam_id = cam.entity_id.clone();
+    let (cam_id, watched) = (cam.entity_id.clone(), device.clone());
     status(frame, device, show_area, move |home| {
         let on = |id: &Option<String>| {
             id.as_ref()
@@ -498,27 +495,51 @@ fn camera(frame: &Frame, device: &Device, home: &Home, show_area: bool, size: Si
             ));
             set_class(&battery_chip.0, "warning", level <= 20.0);
         }
-        let when = |id: &Option<String>| {
-            id.as_ref()
-                .and_then(|id| entity(home, id))
-                .and_then(|e| ago(&e.state))
-        };
-        let line = if on(&motion) || on(&person) {
-            "Motion now".to_string()
-        } else if let Some(t) = when(&ring) {
-            format!("Rang {}", t.to_lowercase())
-        } else if let Some(t) = when(&detection) {
-            format!("Motion {}", t.to_lowercase())
-        } else {
+        let line = camera_event(&watched, home).unwrap_or_else(|| {
             entity(home, &cam_id)
                 .map(present::state_text)
                 .unwrap_or_default()
-        };
+        });
         let unavailable = entity(home, &cam_id).is_none_or(present::unavailable);
         (line, on(&streaming), unavailable)
     });
     let (id, name) = (cam.entity_id.clone(), device.name.clone());
     set_activate(device, move || viewer::open(&id, &name, None));
+}
+
+/// What a camera last saw: "Motion now", "Rang 5 min ago", "Motion 1 hour ago".
+pub fn camera_event(device: &Device, home: &Home) -> Option<String> {
+    let find = |pred: &dyn Fn(&Entity) -> bool| device.find(&home.entities, pred);
+    let sensor = |class: &str| {
+        find(&|e| e.domain() == "binary_sensor" && device::device_class(e) == class)
+            .is_some_and(|e| e.state == "on")
+    };
+    if sensor("motion") || sensor("occupancy") {
+        return Some("Motion now".into());
+    }
+    let when = |e: Option<&Entity>| e.and_then(|e| ago(&e.state)).map(|t| t.to_lowercase());
+    if let Some(t) = when(find(&|e| {
+        e.domain() == "event" && device::device_class(e) == "doorbell"
+    })) {
+        return Some(format!("Rang {t}"));
+    }
+    when(find(&|e| {
+        e.domain() == "event" && e.name().to_lowercase().ends_with("detection")
+    }))
+    .map(|t| format!("Motion {t}"))
+}
+
+/// A camera's power: "Plugged in", "Battery 82%".
+pub fn camera_power(device: &Device, home: &Home) -> Option<String> {
+    if device.plugged {
+        return Some("Plugged in".into());
+    }
+    device
+        .find(&home.entities, |e| {
+            e.domain() == "sensor" && device::device_class(e) == "battery"
+        })
+        .and_then(|e| e.state.parse::<f64>().ok())
+        .map(|level| format!("Battery {}%", level.round()))
 }
 
 // ---------- Climate ----------
@@ -1860,6 +1881,13 @@ fn sensors(frame: &Frame, device: &Device, home: &Home, show_area: bool, size: S
 /// The sizes a scene tile comes in.
 pub const SCENE_SIZES: [Size; 3] = [S12, S22, S14];
 
+/// Which of the eight scene colors a scene keeps, by its ID.
+pub fn scene_hue(id: &str) -> u32 {
+    id.bytes()
+        .fold(0u32, |h, c| h.wrapping_mul(31).wrapping_add(c as u32))
+        % 8
+}
+
 /// A scene or script as a colored tile: tap to run it. The color stays the
 /// same for each scene.
 pub fn scene_tile(id: &str, home: &Home, size: Size) -> gtk::Widget {
@@ -1875,15 +1903,11 @@ pub fn scene_tile(id: &str, home: &Home, size: Size) -> gtk::Widget {
         .build();
     tile.add_css_class("scene-tile");
     tile.set_focusable(true);
-    let hue = id
-        .bytes()
-        .fold(0u32, |h, c| h.wrapping_mul(31).wrapping_add(c as u32))
-        % 8;
-    tile.add_css_class(&format!("scene-color-{hue}"));
+    tile.add_css_class(&format!("scene-color-{}", scene_hue(id)));
     let icon = gtk::Image::from_icon_name(if script {
         "system-run-symbolic"
     } else {
-        "applications-graphics-symbolic"
+        icons::SCENE
     });
     let label = widgets::label(&name, "scene-name");
     label.set_ellipsize(gtk::pango::EllipsizeMode::End);

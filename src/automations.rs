@@ -16,7 +16,6 @@ use std::{
 
 pub struct Page {
     pub root: gtk::Widget,
-    pub actions: gtk::Box,
     stack: gtk::Stack,
     problem: gtk::Box,
     list: gtk::ListBox,
@@ -82,15 +81,16 @@ impl Page {
             None,
         ));
 
-        let actions = widgets::hbox(2);
-        let new = widgets::bar_button("list-add-symbolic", "New automation (Ctrl+N)");
+        let bar = crate::bar::PageBar::new("Automations");
+        bar.subtitle
+            .set_text("On this computer, in Home Assistant, or both");
+        let new = crate::bar::button("list-add-symbolic", "New automation");
         new.add_css_class("suggested-action");
-        new.update_property(&[gtk::accessible::Property::Label("New automation")]);
+        new.set_tooltip_text(Some("New automation (Ctrl+N)"));
         new.connect_clicked(|_| new_automation());
-        actions.append(&new);
+        bar.actions.append(&new);
         Self {
-            root: stack.clone().upcast(),
-            actions,
+            root: bar.over(&stack),
             stack,
             problem,
             list,

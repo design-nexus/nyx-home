@@ -10,7 +10,6 @@ pub struct Prefs {
     pub glow: bool,
     pub reduce_motion: bool,
     pub camera_ask_seconds: u32,
-    pub sidebar_collapsed: bool,
     pub last_section: String,
     pub home_url: String,
     /// Kept only to move old favorites to their devices.
@@ -43,19 +42,11 @@ impl Default for Prefs {
             glow: true,
             reduce_motion: false,
             camera_ask_seconds: 180,
-            sidebar_collapsed: false,
             last_section: "overview".into(),
             home_url: String::new(),
             favorite_entities: Vec::new(),
             favorite_devices: Vec::new(),
-            dashboard_order: [
-                "summary",
-                "favorites",
-                "cameras",
-                "robots",
-                "energy",
-                "health",
-            ]
+            dashboard_order: ["scenes", "rooms", "robots", "favorites", "energy", "health"]
             .into_iter()
             .map(str::to_string)
             .collect(),

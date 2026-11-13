@@ -499,11 +499,257 @@ pub fn status(status: &str) -> (&'static str, &'static str, &'static str) {
     }
 }
 
+/// A temperature as a room card shows it: "21.8°".
+pub fn degrees(value: f64) -> String {
+    format!("{}°", number(value))
+}
+
+fn opening(e: &Entity) -> bool {
+    e.domain() == "binary_sensor"
+        && matches!(
+            device_class(e),
+            "door" | "garage_door" | "opening" | "window"
+        )
+}
+
+/// A name without its room in front: "Living room speaker" in the living
+/// room reads "Speaker".
+pub fn without_room(name: &str, room: &str) -> String {
+    let head = name.get(..room.len()).filter(|h| h.eq_ignore_ascii_case(room));
+    match (head, name.get(room.len()..)) {
+        (Some(_), Some(rest)) if rest.starts_with(' ') && !rest.trim().is_empty() => {
+            sentence(rest.trim())
+        }
+        _ => name.to_string(),
+    }
+}
+
+/// Home's greeting line: what's on and open, the temperature inside and who's
+/// home ("5 lights on · the kitchen window is open · 21.5° inside").
+pub fn home_line<'a>(entities: impl IntoIterator<Item = &'a Entity> + Clone) -> String {
+    let s = summarize(entities.clone());
+    let (mut lights, mut on) = (0, 0);
+    let mut open = Vec::new();
+    for e in entities {
+        if e.domain() == "light"
+            && e.entity_category.is_none()
+            && !e.hidden
+            && e.members().is_none()
+        {
+            lights += 1;
+            on += usize::from(e.state == "on");
+        }
+        if opening(e) && e.state == "on" && !e.hidden {
+            open.push(e.name());
+        }
+    }
+    let mut parts = Vec::new();
+    if lights > 0 {
+        parts.push(if on == 0 {
+            "every light is off".to_string()
+        } else {
+            format!("{} on", plural(on, "light"))
+        });
+    }
+    match open.as_slice() {
+        [] => {}
+        [one] => parts.push(format!("the {} is open", one.to_lowercase())),
+        many => parts.push(format!("{} doors and windows are open", many.len())),
+    }
+    if let Some(t) = s.climate {
+        parts.push(format!("{t} inside"));
+    }
+    if s.people > 0 {
+        parts.push(match s.people_home {
+            0 => "nobody's home".to_string(),
+            1 => "1 person home".to_string(),
+            n => format!("{n} people home"),
+        });
+    }
+    if parts.is_empty() {
+        return "Everything's quiet.".into();
+    }
+    sentence(&parts.join(" · "))
+}
+
+/// A room at a glance: its temperature and humidity, and a few short facts,
+/// each with whether it needs a look.
+#[derive(Debug, Default, PartialEq)]
+pub struct RoomGlance {
+    pub temperature: Option<f64>,
+    pub humidity: Option<f64>,
+    pub facts: Vec<(String, bool)>,
+}
+
+/// Humid enough to mention on a room's card.
+const HUMID: f64 = 65.0;
+
+pub fn room_glance(
+    room: &str,
+    devices: &[&crate::device::Device],
+    entities: &std::collections::BTreeMap<String, Entity>,
+) -> RoomGlance {
+    use crate::device::Kind;
+    let mut g = RoomGlance::default();
+    let (mut facts, mut warnings) = (Vec::new(), Vec::new());
+    let (mut lights_on, mut anything_on, mut switchable, mut cameras) = (0, false, false, 0);
+    for d in devices {
+        let Some(p) = d.primary(entities) else {
+            continue;
+        };
+        let name = without_room(&d.name, room);
+        for e in d.entities.iter().filter_map(|id| entities.get(id)) {
+            if e.domain() == "sensor" && e.entity_category.is_none() {
+                let value = e.state.parse::<f64>().ok();
+                match device_class(e) {
+                    "temperature" => g.temperature = g.temperature.or(value),
+                    "humidity" => g.humidity = g.humidity.or(value),
+                    _ => {}
+                }
+            }
+            if opening(e) && e.state == "on" {
+                warnings.push(format!("{} open", without_room(&e.name(), room)));
+            }
+        }
+        let a = &p.attributes;
+        match d.kind {
+            Kind::Light => {
+                switchable = true;
+                if d.members.is_none() && p.state == "on" {
+                    lights_on += 1;
+                }
+            }
+            Kind::Climate => {
+                g.temperature = g.temperature.or(a["current_temperature"].as_f64());
+                g.humidity = g.humidity.or(a["current_humidity"].as_f64());
+                let target = a["temperature"].as_f64().map(degrees);
+                match (a["hvac_action"].as_str(), target) {
+                    (Some("heating"), Some(t)) => facts.push(format!("Heating to {t}")),
+                    (Some("cooling"), Some(t)) => facts.push(format!("Cooling to {t}")),
+                    _ => {}
+                }
+                anything_on |= matches!(a["hvac_action"].as_str(), Some("heating" | "cooling"));
+            }
+            Kind::Media => {
+                switchable = true;
+                if p.state == "playing" {
+                    facts.push(format!("{name} playing"));
+                    anything_on = true;
+                }
+            }
+            Kind::Cover => match (p.state.as_str(), a["current_position"].as_f64()) {
+                ("open", Some(pos)) if pos < 100.0 => facts.push(format!("{name} {}%", pos.round())),
+                ("open", _) => facts.push(format!("{name} open")),
+                ("closed", _) => facts.push(format!("{name} closed")),
+                _ => {}
+            },
+            Kind::Lock => match p.state.as_str() {
+                "locked" => facts.push(format!("{name} locked")),
+                "unlocked" | "open" => warnings.push(format!("{name} unlocked")),
+                _ => {}
+            },
+            Kind::Robot => facts.push(format!("{name} {}", state_text(p).to_lowercase())),
+            Kind::Camera => cameras += 1,
+            Kind::Fan | Kind::Switch => {
+                switchable = true;
+                if p.state == "on" {
+                    facts.push(format!("{name} on"));
+                    anything_on = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    if lights_on > 0 {
+        facts.insert(0, format!("{} on", plural(lights_on, "light")));
+    } else if !anything_on && switchable {
+        facts.insert(0, "All off".into());
+    }
+    if facts.is_empty() && cameras > 0 {
+        facts.push(plural(cameras, "camera"));
+    }
+    if let Some(h) = g.humidity.filter(|h| *h >= HUMID) {
+        warnings.push(format!("{}% humidity", h.round()));
+    }
+    warnings.truncate(2);
+    facts.truncate(3 - warnings.len());
+    g.facts = facts.into_iter().map(|f| (f, false)).collect();
+    g.facts.extend(warnings.into_iter().map(|w| (w, true)));
+    g
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::Value;
     use serde_json::json;
+
+    #[test]
+    fn home_line_says_whats_on_and_open() {
+        let mut lamp = entity("light.lamp", "on", json!({}));
+        lamp.area_name = Some("Living room".into());
+        let entities = [
+            lamp,
+            entity("light.ceiling", "off", json!({})),
+            entity("light.group", "on", json!({"entity_id": ["light.lamp"]})),
+            entity(
+                "binary_sensor.kitchen_window",
+                "on",
+                json!({"device_class": "window", "friendly_name": "Kitchen window"}),
+            ),
+            entity("climate.hall", "heat", json!({"current_temperature": 21.5})),
+            entity("person.sam", "home", json!({})),
+            entity("person.alex", "not_home", json!({})),
+        ];
+        assert_eq!(
+            home_line(entities.iter()),
+            "1 light on · the kitchen window is open · 21.5° inside · 1 person home"
+        );
+        assert_eq!(home_line(std::iter::empty::<&Entity>()), "Everything's quiet.");
+    }
+
+    #[test]
+    fn rooms_read_at_a_glance() {
+        use crate::device::group;
+        let mut list = vec![
+            entity("light.kitchen", "on", json!({"friendly_name": "Kitchen lights"})),
+            entity(
+                "binary_sensor.kitchen_window",
+                "on",
+                json!({"device_class": "window", "friendly_name": "Kitchen window"}),
+            ),
+            entity(
+                "sensor.kitchen_temperature",
+                "22.4",
+                json!({"device_class": "temperature"}),
+            ),
+            entity(
+                "sensor.kitchen_humidity",
+                "70",
+                json!({"device_class": "humidity"}),
+            ),
+            entity("switch.kettle", "off", json!({"friendly_name": "Kettle"})),
+        ];
+        for e in &mut list {
+            e.area_name = Some("Kitchen".into());
+        }
+        let entities: std::collections::BTreeMap<String, Entity> =
+            list.into_iter().map(|e| (e.entity_id.clone(), e)).collect();
+        let devices = group(&entities, &Default::default(), false);
+        let refs: Vec<_> = devices.iter().collect();
+        let g = room_glance("Kitchen", &refs, &entities);
+        assert_eq!(g.temperature, Some(22.4));
+        assert_eq!(
+            g.facts,
+            [
+                ("1 light on".to_string(), false),
+                ("Window open".to_string(), true),
+                ("70% humidity".to_string(), true),
+            ]
+        );
+        assert_eq!(without_room("Living room speaker", "Living room"), "Speaker");
+        assert_eq!(without_room("Living room", "Living room"), "Living room");
+    }
 
     fn entity(id: &str, state: &str, attributes: Value) -> Entity {
         serde_json::from_value(json!({"entity_id": id, "state": state, "attributes": attributes}))

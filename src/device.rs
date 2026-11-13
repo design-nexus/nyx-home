@@ -71,17 +71,18 @@ impl Kind {
     }
 
     pub fn icon(self) -> &'static str {
+        use crate::icons;
         match self {
-            Self::Climate => "weather-few-clouds-symbolic",
-            Self::Light => "display-brightness-symbolic",
-            Self::Fan => "weather-windy-symbolic",
-            Self::Media => "multimedia-player-symbolic",
-            Self::Camera => "camera-web-symbolic",
-            Self::Robot => "applications-engineering-symbolic",
-            Self::Security => "security-high-symbolic",
-            Self::Lock => "changes-prevent-symbolic",
-            Self::Cover => "go-down-symbolic",
-            Self::Switch => "system-shutdown-symbolic",
+            Self::Climate => icons::THERMO,
+            Self::Light => icons::BULB,
+            Self::Fan => icons::FAN,
+            Self::Media => icons::SPEAKER,
+            Self::Camera => icons::CAMERA,
+            Self::Robot => icons::ROBOT,
+            Self::Security => icons::SHIELD,
+            Self::Lock => icons::LOCK,
+            Self::Cover => icons::BLINDS,
+            Self::Switch => icons::PLUG,
             Self::Sensors => "dialog-information-symbolic",
         }
     }

@@ -1,12 +1,14 @@
 mod activity;
 mod app;
 mod automations;
+mod bar;
 mod builder;
 mod cameras;
 mod canvas;
 mod cards;
 mod connection;
 mod connections;
+mod demo;
 mod details;
 mod device;
 mod grid;
@@ -38,17 +40,22 @@ fn main() -> gtk::glib::ExitCode {
         slug: "nyx-home",
         name: "Home",
     });
-    // Developer aid: NYX_HOME_TEST=1 gives a test copy its own ID, so its
-    // windows can be kept off the screen (a compositor rule on the ID).
-    let id = if std::env::var_os("NYX_HOME_TEST").is_some() {
-        format!("{APP_ID}Test")
-    } else {
-        APP_ID.to_string()
-    };
+    // Developer aid: NYX_HOME_APP_ID (or NYX_HOME_TEST=1) gives a test copy its
+    // own ID, so its windows can be kept off the screen (a compositor rule on the ID).
+    let id = std::env::var("NYX_HOME_APP_ID").unwrap_or_else(|_| {
+        if std::env::var_os("NYX_HOME_TEST").is_some() {
+            format!("{APP_ID}Test")
+        } else {
+            APP_ID.to_string()
+        }
+    });
     let mut builder = gtk::Application::builder().application_id(id);
     // The developer aids open a separate copy instead of handing over to a
     // Home that is already open.
-    if std::env::var_os("NYX_HOME_PAGE").is_some() || std::env::var_os("NYX_HOME_OPEN").is_some() {
+    if ["NYX_HOME_PAGE", "NYX_HOME_OPEN", "NYX_HOME_DEMO"]
+        .iter()
+        .any(|v| std::env::var_os(v).is_some())
+    {
         builder = builder.flags(gtk::gio::ApplicationFlags::NON_UNIQUE);
     }
     let app = builder.build();

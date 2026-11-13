@@ -9,7 +9,6 @@ use std::cell::RefCell;
 
 pub struct Page {
     pub root: gtk::Widget,
-    pub actions: gtk::Box,
     ha: gtk::Box,
     desktop: gtk::Box,
     shown: RefCell<String>,
@@ -33,9 +32,12 @@ impl Page {
             .vscrollbar_policy(gtk::PolicyType::External)
             .child(&clamp)
             .build();
+        let bar = crate::bar::PageBar::new("Connections");
+        bar.back.set_visible(true);
+        bar.subtitle
+            .set_text("Home Assistant and the desktop automation service");
         let page = Self {
-            root: scroll.upcast(),
-            actions: widgets::hbox(2),
+            root: bar.over(&scroll),
             ha,
             desktop,
             shown: RefCell::new(String::new()),
@@ -95,7 +97,7 @@ impl Page {
         if home.loaded() {
             card.append(&widgets::row(
                 "Found",
-                "Diagnostic and hidden entities are left out of Rooms unless you ask for them.",
+                "Diagnostic and hidden entities are left out of All devices unless you ask for them.",
                 Some(
                     widgets::label(
                         &format!(

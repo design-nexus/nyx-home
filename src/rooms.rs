@@ -5,10 +5,11 @@
 //! chosen. Arrange mode moves and resizes cards and sections.
 use crate::{
     app::{self, Home, Link},
+    bar::{self, PageBar},
     cards,
     device::{self, Device, Kind},
     grid::{self, CardGrid, Sections},
-    light_groups, overview, prefs,
+    icons, light_groups, overview, prefs, present,
 };
 use gtk::{gdk, glib, prelude::*};
 use nyx_ui::widgets;
@@ -22,7 +23,8 @@ const SCENES: &str = "scenes";
 
 pub struct Page {
     pub root: gtk::Widget,
-    pub actions: gtk::Box,
+    bar: PageBar,
+    search: gtk::SearchEntry,
     stack: gtk::Stack,
     empty: gtk::Box,
     chips: gtk::FlowBox,
@@ -49,12 +51,8 @@ pub fn arrange_buttons(actions: &gtk::Box) -> (gtk::ToggleButton, gtk::Button) {
     ));
     reset.set_visible(false);
     actions.append(&reset);
-    let arrange = gtk::ToggleButton::new();
-    arrange.set_icon_name("view-app-grid-symbolic");
-    arrange.add_css_class("bar-button");
-    arrange.set_valign(gtk::Align::Center);
+    let arrange = bar::toggle(icons::GRID, "Arrange");
     arrange.set_tooltip_text(Some("Arrange cards: drag them, change their size"));
-    arrange.update_property(&[gtk::accessible::Property::Label("Arrange cards")]);
     actions.append(&arrange);
     (arrange, reset)
 }
@@ -103,16 +101,24 @@ impl Page {
             .child(&body)
             .build();
         stack.add_named(&scroll, Some("content"));
-        let actions = widgets::hbox(2);
-        let (arrange, reset) = arrange_buttons(&actions);
-        let show_all = gtk::ToggleButton::new();
-        show_all.set_icon_name("view-reveal-symbolic");
-        show_all.add_css_class("bar-button");
-        show_all.set_valign(gtk::Align::Center);
+        let bar = PageBar::new("All devices");
+        bar.back.set_visible(true);
+        let actions = bar.actions.clone();
+        let search = gtk::SearchEntry::new();
+        search.set_placeholder_text(Some("Search devices"));
+        search.add_css_class("bar-search");
+        search.set_width_chars(22);
+        search.update_property(&[gtk::accessible::Property::Label("Search devices")]);
+        search.connect_search_changed(|entry| {
+            if let Some(app) = app::get() {
+                app.rooms.set_query(&entry.text(), &app.home.borrow());
+            }
+        });
+        actions.append(&search);
+        let show_all = bar::toggle("view-reveal-symbolic", "Show hidden");
         show_all.set_tooltip_text(Some(
             "Also show hidden devices and ones with only diagnostic entities",
         ));
-        show_all.update_property(&[gtk::accessible::Property::Label("Show every device")]);
         show_all.set_active(prefs::get().show_all_entities);
         show_all.connect_toggled(|button| {
             let on = button.is_active();
@@ -122,6 +128,7 @@ impl Page {
             }
         });
         actions.append(&show_all);
+        let (arrange, reset) = arrange_buttons(&actions);
         arrange.connect_toggled(|b| {
             if let Some(app) = app::get() {
                 app.rooms.set_arranging(b.is_active());
@@ -142,8 +149,9 @@ impl Page {
         });
         escape_leaves(&stack, &arrange);
         Self {
-            root: stack.clone().upcast(),
-            actions,
+            root: bar.over(&stack),
+            bar,
+            search,
             stack,
             empty,
             chips,
@@ -161,10 +169,25 @@ impl Page {
         }
     }
 
-    /// Developer aid: open on one room's tab.
-    pub fn show_room(&self, room: &str, home: &Home) {
-        *self.area.borrow_mut() = Some(room.to_string());
-        self.build(home, prefs::get().show_all_entities);
+    /// Open on one room, or on every device for `None`.
+    pub fn show_room(&self, room: Option<&str>, home: &Home) {
+        *self.area.borrow_mut() = room.map(str::to_string);
+        if home.loaded() {
+            self.build(home, prefs::get().show_all_entities);
+        }
+    }
+
+    pub fn focus_search(&self) {
+        self.search.grab_focus();
+    }
+
+    /// Clear the search; false if there was none.
+    pub fn clear_search(&self) -> bool {
+        if self.search.text().is_empty() {
+            return false;
+        }
+        self.search.set_text("");
+        true
     }
 
     /// Developer aid: open in Arrange mode.
@@ -292,6 +315,12 @@ impl Page {
             .iter()
             .filter(|d| in_room(d.area.as_ref()))
             .collect();
+        self.bar
+            .title
+            .set_text(area.as_deref().unwrap_or("All devices"));
+        self.bar
+            .subtitle
+            .set_text(&present::plural(shown.len(), "device"));
         let show_area = area.is_none();
         let order = prefs::get().card_order;
         let saved = |key: &str| order.get(key).cloned().unwrap_or_default();
@@ -363,7 +392,10 @@ impl Page {
                 })
                 .collect();
             let extra = (kind == Kind::Light && area.is_none()).then(|| {
-                let new = widgets::bar_button("list-add-symbolic", "New light group");
+                let new = bar::button("list-add-symbolic", "Light group");
+                new.add_css_class("flat");
+                new.add_css_class("home-link");
+                new.set_tooltip_text(Some("New light group"));
                 new.connect_clicked(|_| light_groups::create(None, Vec::new()));
                 new.upcast::<gtk::Widget>()
             });

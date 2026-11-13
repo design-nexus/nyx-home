@@ -28,6 +28,10 @@ enum Message {
 /// At startup: load the saved token and connect.
 pub fn restore() {
     let Some(app) = app::get() else { return };
+    if crate::demo::active() {
+        crate::demo::start();
+        return;
+    }
     if app.home.borrow().base.is_empty() {
         app::set_link(Link::NotSetUp);
         return;
@@ -71,6 +75,9 @@ pub fn reconnect() {
 
 pub fn connect(base: String, token: String) {
     let Some(app) = app::get() else { return };
+    if crate::demo::active() {
+        return;
+    }
     stop();
     {
         let mut home = app.home.borrow_mut();

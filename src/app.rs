@@ -1,4 +1,4 @@
-//! The window: header, sidebar, pages and status bar, toasts and keys, and the
+//! The window: the header with its tabs, the pages, toasts and keys, and the
 //! Home Assistant state every page reads.
 use crate::{
     activity, automations, cameras, cards, connection, connections, ha, overview, prefs, rooms, rt,
@@ -15,11 +15,14 @@ use std::{
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Section {
+    /// Home: the rooms at a glance.
     Overview,
+    /// A room's devices, or every device; opened from Home.
     Rooms,
     Cameras,
     Automations,
     Activity,
+    /// Opened from the connection in the header.
     Connections,
 }
 
@@ -31,6 +34,13 @@ impl Section {
         Self::Automations,
         Self::Activity,
         Self::Connections,
+    ];
+    /// The tabs across the header.
+    const TABS: [Self; 4] = [
+        Self::Overview,
+        Self::Cameras,
+        Self::Automations,
+        Self::Activity,
     ];
     pub fn id(self) -> &'static str {
         match self {
@@ -44,7 +54,7 @@ impl Section {
     }
     pub fn title(self) -> &'static str {
         match self {
-            Self::Overview => "Overview",
+            Self::Overview => "Home",
             Self::Rooms => "Rooms",
             Self::Cameras => "Cameras",
             Self::Automations => "Automations",
@@ -54,9 +64,8 @@ impl Section {
     }
     fn icon(self) -> &'static str {
         match self {
-            Self::Overview => "view-grid-symbolic",
-            Self::Rooms => "user-home-symbolic",
-            Self::Cameras => "camera-web-symbolic",
+            Self::Overview | Self::Rooms => "user-home-symbolic",
+            Self::Cameras => crate::icons::CAMERA,
             Self::Automations => crate::icons::AUTOMATIONS,
             Self::Activity => "document-open-recent-symbolic",
             Self::Connections => "network-server-symbolic",
@@ -64,17 +73,25 @@ impl Section {
     }
     fn description(self) -> &'static str {
         match self {
-            Self::Overview => "Your home at a glance",
+            Self::Overview => "Your rooms at a glance (Ctrl+1)",
             Self::Rooms => "Every device, by room",
-            Self::Cameras => "Every camera and its last picture",
-            Self::Automations => "Desktop and Home Assistant automations",
-            Self::Activity => "What your automations did",
+            Self::Cameras => "Every camera and its last picture (Ctrl+2)",
+            Self::Automations => "Desktop and Home Assistant automations (Ctrl+3)",
+            Self::Activity => "What your automations did (Ctrl+4)",
             Self::Connections => "Home Assistant and the desktop service",
+        }
+    }
+    /// The tab that stays lit on this page.
+    fn tab(self) -> Option<Self> {
+        match self {
+            Self::Rooms => Some(Self::Overview),
+            Self::Connections => None,
+            other => Some(other),
         }
     }
     pub fn parse(id: &str) -> Self {
         match id {
-            "home" => Self::Rooms,
+            "home" => Self::Overview,
             "system" | "integrations" => Self::Connections,
             _ => Self::ALL
                 .into_iter()
@@ -151,7 +168,6 @@ pub struct Home {
 }
 
 impl Home {
-    /// The devices worth a card, as Rooms shows them.
     /// Devices worth a card. Devices hidden in Nyx Home are left out unless
     /// `show_all`, and then marked.
     pub fn device_list(&self, show_all: bool) -> Vec<crate::device::Device> {
@@ -194,6 +210,13 @@ impl Home {
             .map(ha::Entity::name)
             .unwrap_or_else(|| entity_id.to_string())
     }
+    /// The registry ID of the area named `room`.
+    pub fn area_id(&self, room: &str) -> Option<String> {
+        self.areas
+            .iter()
+            .find(|a| a.name == room)
+            .map(|a| a.id.clone())
+    }
     pub fn clear(&mut self) {
         self.entities.clear();
         self.areas.clear();
@@ -207,18 +230,13 @@ impl Home {
 pub struct App {
     pub window: gtk::ApplicationWindow,
     pub overlay: gtk::Overlay,
-    header: chrome::AppHeader,
-    pub search: gtk::SearchEntry,
+    title: gtk::Label,
     stack: gtk::Stack,
-    nav: gtk::Box,
-    nav_items: Vec<(Section, gtk::Button)>,
-    compact_items: Vec<gtk::Widget>,
-    collapse: gtk::Button,
-    actions: Vec<(Section, gtk::Box)>,
-    foot: gtk::Button,
+    tabs: Vec<(Section, gtk::Button, gtk::Label)>,
+    status: gtk::Button,
     dot: gtk::Label,
-    foot_title: gtk::Label,
-    foot_detail: gtk::Label,
+    status_name: gtk::Label,
+    narrow: Cell<bool>,
     toast: RefCell<Option<gtk::Revealer>>,
     pub home: RefCell<Home>,
     section: Cell<Section>,
@@ -239,6 +257,26 @@ thread_local! {
 
 pub fn get() -> Option<Rc<App>> {
     APP.with(|a| a.borrow().clone())
+}
+
+/// The header's app name, to hide in a narrow window as the mockups do.
+fn header_title(header: &chrome::AppHeader) -> gtk::Label {
+    let mut found = None;
+    let mut stack = vec![header.root.clone().upcast::<gtk::Widget>()];
+    while let Some(w) = stack.pop() {
+        if w.has_css_class("app-title")
+            && let Ok(label) = w.clone().downcast::<gtk::Label>()
+        {
+            found = Some(label);
+            break;
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            child = c.next_sibling();
+            stack.push(c);
+        }
+    }
+    found.unwrap_or_default()
 }
 
 pub fn present(application: &gtk::Application) {
@@ -269,16 +307,48 @@ pub fn present(application: &gtk::Application) {
     );
 
     let header = chrome::app_header(&window, "user-home-symbolic", "Home");
-    let collapse = widgets::bar_button("sidebar-show-symbolic", "Collapse the sidebar (Ctrl+B)");
-    collapse.update_property(&[gtk::accessible::Property::Label("Collapse the sidebar")]);
-    collapse.connect_clicked(|_| toggle_sidebar());
-    header.start.append(&collapse);
-    let search = gtk::SearchEntry::new();
-    search.set_placeholder_text(Some("Search devices  (Ctrl+F)"));
-    search.add_css_class("bar-search");
-    search.set_width_chars(30);
+    let title = header_title(&header);
+    let tab_row = widgets::hbox(2);
+    tab_row.add_css_class("home-tabs");
+    tab_row.update_property(&[gtk::accessible::Property::Label("Pages")]);
+    let mut tabs = Vec::new();
+    for section in Section::TABS {
+        let button = gtk::Button::new();
+        button.add_css_class("home-tab");
+        let content = widgets::hbox(7);
+        content.append(&gtk::Image::from_icon_name(section.icon()));
+        let label = gtk::Label::new(Some(section.title()));
+        content.append(&label);
+        button.set_child(Some(&content));
+        button.set_tooltip_text(Some(section.description()));
+        button.update_property(&[gtk::accessible::Property::Label(section.title())]);
+        button.connect_clicked(move |_| show(section));
+        tab_row.append(&button);
+        tabs.push((section, button, label));
+    }
+    header.center.append(&tab_row);
+
+    let search = widgets::bar_button("system-search-symbolic", "Search devices (Ctrl+F)");
     search.update_property(&[gtk::accessible::Property::Label("Search devices")]);
-    header.center.append(&search);
+    search.connect_clicked(|_| open_search());
+    header.end.append(&search);
+    // The Home Assistant connection: its dot and the home's name.
+    let status = gtk::Button::new();
+    status.add_css_class("flat");
+    status.add_css_class("home-status");
+    status.set_valign(gtk::Align::Center);
+    let status_row = widgets::hbox(8);
+    let dot = widgets::label("●", "status-dot");
+    dot.set_accessible_role(gtk::AccessibleRole::Presentation);
+    status_row.append(&dot);
+    let status_name = widgets::label("Home Assistant", "status-name");
+    status_name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    status_name.set_max_width_chars(22);
+    status_row.append(&status_name);
+    status.set_child(Some(&status_row));
+    status.connect_clicked(|_| show(Section::Connections));
+    header.end.append(&status);
+    header.end.append(&chrome::settings_button(open_settings));
 
     let overview = overview::Page::new();
     let rooms = rooms::Page::new();
@@ -286,77 +356,6 @@ pub fn present(application: &gtk::Application) {
     let automations = automations::Page::new();
     let activity = activity::Page::new();
     let connections = connections::Page::new();
-    let mut actions = Vec::new();
-    for (section, page_actions) in [
-        (Section::Overview, &overview.actions),
-        (Section::Rooms, &rooms.actions),
-        (Section::Cameras, &cameras.actions),
-        (Section::Automations, &automations.actions),
-        (Section::Activity, &activity.actions),
-        (Section::Connections, &connections.actions),
-    ] {
-        page_actions.set_visible(false);
-        header.end.append(page_actions);
-        actions.push((section, page_actions.clone()));
-    }
-    header.end.append(&chrome::settings_button(open_settings));
-
-    let nav = gtk::Box::new(gtk::Orientation::Vertical, 2);
-    nav.add_css_class("settings-navigation");
-    nav.set_hexpand(false);
-    let list = gtk::Box::new(gtk::Orientation::Vertical, 2);
-    let mut nav_items = Vec::new();
-    let mut compact_items: Vec<gtk::Widget> = Vec::new();
-    for section in Section::ALL {
-        if section == Section::Connections {
-            let group = widgets::label("SETUP", "nav-group");
-            compact_items.push(group.clone().upcast());
-            list.append(&group);
-        }
-        let button = gtk::Button::new();
-        button.add_css_class("nav-item");
-        let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        content.append(&gtk::Image::from_icon_name(section.icon()));
-        let label = widgets::label(section.title(), "nav-label");
-        label.set_hexpand(true);
-        compact_items.push(label.clone().upcast());
-        content.append(&label);
-        button.set_child(Some(&content));
-        button.set_tooltip_text(Some(section.description()));
-        button.update_property(&[gtk::accessible::Property::Label(section.title())]);
-        button.connect_clicked(move |_| show(section));
-        list.append(&button);
-        nav_items.push((section, button));
-    }
-    let nav_scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .vscrollbar_policy(gtk::PolicyType::External)
-        .vexpand(true)
-        .child(&list)
-        .build();
-    nav.append(&nav_scroll);
-
-    // The Home Assistant connection, at the sidebar's foot like an account.
-    let foot = gtk::Button::new();
-    foot.add_css_class("nav-item");
-    foot.add_css_class("sidebar-foot");
-    let foot_row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    let dot = widgets::label("●", "status-dot");
-    dot.set_accessible_role(gtk::AccessibleRole::Presentation);
-    foot_row.append(&dot);
-    let foot_text = widgets::vbox(1);
-    foot_text.set_hexpand(true);
-    let foot_title = widgets::label("Home Assistant", "foot-title");
-    foot_title.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    let foot_detail = widgets::label("", "foot-detail");
-    foot_detail.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    foot_text.append(&foot_title);
-    foot_text.append(&foot_detail);
-    compact_items.push(foot_text.clone().upcast());
-    foot_row.append(&foot_text);
-    foot.set_child(Some(&foot_row));
-    foot.connect_clicked(|_| show(Section::Connections));
-    nav.append(&foot);
 
     let stack = gtk::Stack::new();
     stack.add_css_class("settings-content");
@@ -372,8 +371,8 @@ pub fn present(application: &gtk::Application) {
     stack.add_named(&connections.root, Some(Section::Connections.id()));
 
     let frame = nyx_ui::frame::AppFrame::new(&header.root);
-    frame.set_sidebar(&nav);
     frame.set_page(&stack);
+    frame.set_flush(true);
     let overlay = frame.install(&window);
 
     let link = if prefs.home_url.is_empty() {
@@ -384,18 +383,13 @@ pub fn present(application: &gtk::Application) {
     let app = Rc::new(App {
         window: window.clone(),
         overlay: overlay.clone(),
-        header,
-        search: search.clone(),
+        title,
         stack,
-        nav,
-        nav_items,
-        compact_items,
-        collapse,
-        actions,
-        foot,
+        tabs,
+        status,
         dot,
-        foot_title,
-        foot_detail,
+        status_name,
+        narrow: Cell::new(false),
         toast: RefCell::new(None),
         home: RefCell::new(Home {
             base: prefs.home_url.clone(),
@@ -421,11 +415,6 @@ pub fn present(application: &gtk::Application) {
     });
     APP.with(|slot| *slot.borrow_mut() = Some(app.clone()));
 
-    search.connect_search_changed(|entry| {
-        if let Some(app) = get() {
-            app.rooms.set_query(&entry.text(), &app.home.borrow());
-        }
-    });
     install_keys(&window);
     watch_width(&window, &overlay);
     flush_now();
@@ -460,7 +449,8 @@ pub fn present(application: &gtk::Application) {
     }
 }
 
-/// Developer aid: `viewer:<entity>` or `details:<device>` once entities arrive.
+/// Developer aid: `viewer:<entity>`, `details:<device>`, `room:<room>` (on
+/// Rooms) or `drawer:<room>` (on Home) once entities arrive.
 fn open_when_connected(what: String) {
     let ready = get().is_some_and(|app| !app.home.borrow().entities.is_empty());
     if !ready {
@@ -481,30 +471,48 @@ fn open_when_connected(what: String) {
         crate::viewer::open_live(camera);
     } else if let Some(device) = what.strip_prefix("robot:") {
         crate::robot_window::open(device);
-    } else if let Some(room) = what.strip_prefix("room:")
+    } else if let Some(room) = what.strip_prefix("room:") {
+        open_room(room, false);
+    } else if let Some(room) = what.strip_prefix("drawer:")
         && let Some(app) = get()
     {
-        app.rooms.show_room(room, &app.home.borrow());
+        show(Section::Overview);
+        app.overview.open_room(room);
     }
+}
+
+/// A room on the Rooms page (every device for `""`), arranging its cards if asked.
+pub fn open_room(room: &str, arrange: bool) {
+    let Some(app) = get() else { return };
+    show(Section::Rooms);
+    let room = (!room.is_empty()).then_some(room);
+    app.rooms.show_room(room, &app.home.borrow());
+    if arrange {
+        app.rooms.start_arranging();
+    }
+}
+
+/// Every device, with the search field ready.
+fn open_search() {
+    let Some(app) = get() else { return };
+    if current() != Section::Rooms {
+        open_room("", false);
+    }
+    app.rooms.focus_search();
 }
 
 pub fn show(section: Section) {
     let Some(app) = get() else { return };
     app.section.set(section);
     app.stack.set_visible_child_name(section.id());
-    app.header.set_subtitle(section.title());
     chrome::set_title(&app.window, "Home", section.title());
-    for (candidate, button) in &app.nav_items {
-        if *candidate == section {
+    for (candidate, button, _) in &app.tabs {
+        if Some(*candidate) == section.tab() {
             button.add_css_class("active");
         } else {
             button.remove_css_class("active");
         }
     }
-    for (candidate, actions) in &app.actions {
-        actions.set_visible(*candidate == section && actions.first_child().is_some());
-    }
-    app.search.set_visible(section == Section::Rooms);
     prefs::update(|p| p.last_section = section.id().into());
     match section {
         Section::Automations => app.automations.reload(),
@@ -578,7 +586,7 @@ fn flush_now() {
     if rebuild {
         app.automations.home_changed(&home);
     }
-    let title = if home.info.location_name.is_empty() {
+    let name = if home.info.location_name.is_empty() {
         "Home Assistant".to_string()
     } else {
         home.info.location_name.clone()
@@ -591,12 +599,11 @@ fn flush_now() {
         ),
         (link, _) => link.label(),
     };
-    app.foot_title.set_text(&title);
-    app.foot_detail.set_text(&detail);
-    let summary = format!("{title}: {detail}");
-    app.foot
+    app.status_name.set_text(&name);
+    let summary = format!("{name}: {detail}");
+    app.status
         .set_tooltip_text(Some(&format!("{summary}. Open Connections.")));
-    app.foot
+    app.status
         .update_property(&[gtk::accessible::Property::Label(&summary)]);
     for tone in ["success", "warning", "danger"] {
         app.dot.remove_css_class(tone);
@@ -759,19 +766,19 @@ fn open_settings() {
 
 pub const SHORTCUTS: &[(&[&str], &str)] = &[
     (
-        &["Ctrl", "1–6"],
-        "Go to Overview, Rooms, Cameras, Automations, Activity or Connections",
+        &["Ctrl", "1–4"],
+        "Go to Home, Cameras, Automations or Activity",
     ),
+    (&["Alt", "←"], "Back to Home from a room or Connections"),
     (&["Ctrl", "F"], "Search devices"),
     (&["Ctrl", "N"], "New automation"),
     (&["Ctrl", "L"], "Connect to Home Assistant"),
-    (&["Ctrl", "B"], "Collapse or expand the sidebar"),
     (&["F5"], "Refresh the page"),
-    (&["Enter / Space"], "Use a device tile's main control"),
+    (&["Enter / Space"], "Open a room, or use a device tile's main control"),
     (&["Shift", "F10"], "A device's details and options"),
     (&["Ctrl", ","], "Settings"),
     (&["F1"], "Show these shortcuts (or ?)"),
-    (&["Esc"], "Clear the search or close what's open"),
+    (&["Esc"], "Close the room, clear the search or close what's open"),
     (&["Ctrl", "Q"], "Close the window (Ctrl+W too)"),
 ];
 
@@ -809,31 +816,29 @@ fn install_keys(window: &gtk::ApplicationWindow) {
             return glib::Propagation::Proceed;
         };
         let ctrl = mods.contains(gdk::ModifierType::CONTROL_MASK);
-        let section = match key {
+        let alt = mods.contains(gdk::ModifierType::ALT_MASK);
+        let tab = match key {
             gdk::Key::_1 => Some(Section::Overview),
-            gdk::Key::_2 => Some(Section::Rooms),
-            gdk::Key::_3 => Some(Section::Cameras),
-            gdk::Key::_4 => Some(Section::Automations),
-            gdk::Key::_5 => Some(Section::Activity),
-            gdk::Key::_6 => Some(Section::Connections),
+            gdk::Key::_2 => Some(Section::Cameras),
+            gdk::Key::_3 => Some(Section::Automations),
+            gdk::Key::_4 => Some(Section::Activity),
             _ => None,
         };
+        let away = matches!(current(), Section::Rooms | Section::Connections);
         match key {
-            _ if ctrl && section.is_some() => show(section.unwrap_or(Section::Overview)),
-            gdk::Key::f if ctrl => {
-                show(Section::Rooms);
-                app.search.grab_focus();
-            }
+            _ if ctrl && tab.is_some() => show(tab.unwrap_or(Section::Overview)),
+            gdk::Key::Left if alt && away => show(Section::Overview),
+            gdk::Key::f if ctrl => open_search(),
             gdk::Key::n if ctrl => {
                 show(Section::Automations);
                 automations::new_automation();
             }
             gdk::Key::l if ctrl => connection::dialog(),
-            gdk::Key::b if ctrl => toggle_sidebar(),
             gdk::Key::F1 => show_shortcuts(),
             gdk::Key::F5 => refresh_page(),
             gdk::Key::Escape if nyx_ui::settings_card::is_open() => nyx_ui::settings_card::escape(),
-            gdk::Key::Escape if !app.search.text().is_empty() => app.search.set_text(""),
+            gdk::Key::Escape if current() == Section::Overview && app.overview.close_room() => {}
+            gdk::Key::Escape if current() == Section::Rooms && app.rooms.clear_search() => {}
             gdk::Key::Escape if app.overview.editing() => app.overview.set_editing(false),
             _ => return glib::Propagation::Proceed,
         }
@@ -842,7 +847,7 @@ fn install_keys(window: &gtk::ApplicationWindow) {
     window.add_controller(keys);
 }
 
-const NARROW_BELOW: i32 = 980;
+const NARROW_BELOW: i32 = nyx_ui::sidebar::NARROW_WIDTH;
 
 fn watch_width(window: &gtk::ApplicationWindow, overlay: &gtk::Overlay) {
     window.connect_realize(|_| apply_width());
@@ -868,44 +873,24 @@ fn apply_width() {
     if width <= 0 {
         return;
     }
-    apply_compact(width < NARROW_BELOW || prefs::get().sidebar_collapsed);
+    let narrow = width < NARROW_BELOW;
+    if app.narrow.replace(narrow) != narrow || !app.window.has_css_class("measured") {
+        app.window.add_css_class("measured");
+        // Narrow, the tabs and the connection show only their icons.
+        app.title.set_visible(!narrow);
+        app.status_name.set_visible(!narrow);
+        for (_, _, label) in &app.tabs {
+            label.set_visible(!narrow);
+        }
+        if narrow {
+            app.window.add_css_class("narrow");
+        } else {
+            app.window.remove_css_class("narrow");
+        }
+        app.overview.set_narrow(narrow);
+        app.cameras.set_narrow(narrow);
+    }
     if nyx_ui::settings_card::is_open() {
         nyx_ui::settings_card::fit(&app.window);
     }
-}
-
-fn apply_compact(compact: bool) {
-    let Some(app) = get() else { return };
-    if compact == app.nav.has_css_class("compact") {
-        return;
-    }
-    if compact {
-        app.nav.add_css_class("compact");
-    } else {
-        app.nav.remove_css_class("compact");
-    }
-    for widget in &app.compact_items {
-        widget.set_visible(!compact);
-    }
-    for button in app.nav_items.iter().map(|(_, b)| b).chain([&app.foot]) {
-        if let Some(content) = button.child() {
-            content.set_halign(if compact {
-                gtk::Align::Center
-            } else {
-                gtk::Align::Fill
-            });
-        }
-    }
-    app.collapse.set_tooltip_text(Some(if compact {
-        "Expand the sidebar (Ctrl+B)"
-    } else {
-        "Collapse the sidebar (Ctrl+B)"
-    }));
-}
-
-pub fn toggle_sidebar() {
-    prefs::update(|p| p.sidebar_collapsed = !p.sidebar_collapsed);
-    let Some(app) = get() else { return };
-    let width = app.window.width().max(app.window.default_width());
-    apply_compact(width < NARROW_BELOW || prefs::get().sidebar_collapsed);
 }

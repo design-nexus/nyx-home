@@ -396,23 +396,13 @@ window.home-window .choice-card {
   padding: 14px 16px;
 }
 
-/* ---------- Connection at the sidebar's foot ---------- */
+/* ---------- The connection in the header ---------- */
 
-window.home-window .settings-navigation button.sidebar-foot {
-  margin-top: 6px;
-  padding-top: 6px;
-  padding-bottom: 6px;
-}
-
-window.home-window .settings-navigation .foot-title {
-  color: @theme_text;
-  font-weight: 500;
-}
-
-window.home-window .settings-navigation .foot-detail {
+window.home-window button.home-status {
+  min-height: 28px;
+  padding: 0 10px;
   color: @theme_dim_text;
-  font-size: 0.885em;
-  font-feature-settings: "tnum";
+  font-size: 0.923em;
 }
 
 window.home-window .status-dot {
@@ -629,4 +619,347 @@ window.home-window .live-banner {
 window.home-window .map-layer.small .map-label {
   padding: 1px 6px;
   font-size: 0.72em;
+}
+
+/* ---------- Header tabs ---------- */
+
+window.home-window .home-tabs {
+  padding: 3px;
+  border-radius: 9px;
+  background: @field;
+  box-shadow: inset 0 0 0 1px alpha(@theme_border, 0.5);
+  margin: 6px 0;
+}
+
+window.home-window button.home-tab {
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  background: transparent;
+  color: @theme_dim_text;
+  font-weight: 500;
+}
+
+window.home-window button.home-tab image {
+  -gtk-icon-size: 15px;
+}
+
+window.home-window button.home-tab:hover {
+  background: @row_hover;
+  color: @theme_text;
+}
+
+window.home-window button.home-tab.active {
+  background: @theme_raised;
+  color: @theme_text;
+  box-shadow: 0 0 0 1px alpha(@theme_border, 0.7), 0 1px 2px alpha(@theme_shadow, 0.3);
+}
+
+window.home-window button.home-tab.active image {
+  color: @theme_accent;
+}
+
+window.home-window.narrow button.home-tab {
+  padding: 0 10px;
+}
+
+/* ---------- Page bars ---------- */
+
+window.home-window .page-bar {
+  min-height: 50px;
+  padding: 0 12px 0 20px;
+  border-bottom: 1px solid @sheet_line;
+}
+
+window.home-window .page-bar button.bar-button {
+  margin-left: -8px;
+}
+
+window.home-window .page-title {
+  font-weight: 600;
+  font-size: 1.077em;
+}
+
+window.home-window .page-subtitle {
+  color: @theme_dim_text;
+  font-size: 0.923em;
+  margin-left: 4px;
+}
+
+window.home-window .page-bar entry.bar-search {
+  min-height: 30px;
+}
+
+window.home-window button.small {
+  min-height: 26px;
+  padding: 0 9px;
+  font-size: 0.923em;
+}
+
+window.home-window button.small image {
+  -gtk-icon-size: 12px;
+}
+
+window.home-window button.home-link {
+  min-height: 24px;
+  padding: 0 6px;
+  color: @theme_accent;
+  font-size: 0.923em;
+  font-weight: 500;
+}
+
+window.home-window button.home-link image {
+  -gtk-icon-size: 12px;
+}
+
+/* ---------- Home ---------- */
+
+window.home-window .home-hello {
+  padding: 18px 20px 0;
+}
+
+window.home-window .home-scroll-body > .home-page {
+  padding-top: 14px;
+}
+
+window.home-window .hello-title {
+  font-size: 1.692em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+window.home-window .hello-line {
+  color: @theme_dim_text;
+}
+
+window.home-window .home-head {
+  margin: 16px 2px 8px;
+}
+
+window.home-window .home-head-title {
+  font-size: 0.923em;
+  font-weight: 600;
+}
+
+window.home-window button.scene-chip {
+  min-height: 36px;
+  padding: 0 14px 0 10px;
+  border-radius: var(--nyx-radius-card);
+  font-weight: 500;
+}
+
+window.home-window button.scene-chip image {
+  -gtk-icon-size: 16px;
+}
+
+window.home-window .room-card {
+  padding: 12px 12px 10px;
+  border-radius: var(--nyx-radius-card);
+  background: @theme_card;
+  box-shadow: inset 0 0 0 1px alpha(@theme_border, 0.6);
+  transition: box-shadow 160ms ease-out, background 160ms ease-out;
+}
+
+window.home-window .room-card:hover {
+  box-shadow: inset 0 0 0 1px alpha(@theme_accent, 0.4);
+}
+
+window.home-window .room-card.selected {
+  background: mix(@theme_card, @theme_accent, 0.07);
+  box-shadow: inset 0 0 0 1.5px alpha(@theme_accent, 0.7);
+}
+
+window.home-window .room-card:focus-visible {
+  outline: 2px solid alpha(@theme_accent, 0.8);
+  outline-offset: 2px;
+}
+
+window.home-window image.room-chip {
+  -gtk-icon-size: 16px;
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: 999px;
+}
+
+window.home-window image.room-chip.big {
+  -gtk-icon-size: 20px;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+window.home-window .room-name {
+  font-weight: 600;
+  font-size: 1.077em;
+}
+
+window.home-window .room-temp {
+  font-weight: 600;
+  font-size: 1.154em;
+  font-feature-settings: "tnum";
+}
+
+window.home-window .room-facts {
+  min-height: 34px;
+  color: @theme_dim_text;
+  font-size: 0.923em;
+}
+
+window.home-window button.room-quick {
+  min-width: 34px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: var(--nyx-radius-small);
+  background: @field;
+  box-shadow: inset 0 0 0 1px alpha(@theme_border, 0.5);
+  color: @theme_dim_text;
+}
+
+window.home-window button.room-quick image {
+  -gtk-icon-size: 16px;
+}
+
+window.home-window button.room-quick.on {
+  background: mix(@theme_card, @kind_light, 0.22);
+  box-shadow: none;
+  color: @kind_light;
+}
+
+/* The room's drawer. */
+window.home-window .room-drawer {
+  background: @theme_bg;
+}
+
+window.home-window .room-drawer.floating {
+  background: @theme_popover;
+  border-radius: 12px 0 0 12px;
+  box-shadow: 0 12px 32px alpha(@theme_shadow, 0.55);
+}
+
+window.home-window .home-veil {
+  background: alpha(@theme_shadow, 0.45);
+}
+
+window.home-window .drawer-head {
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid @sheet_line;
+}
+
+window.home-window .drawer-title {
+  font-weight: 600;
+  font-size: 1.077em;
+}
+
+window.home-window .drawer-sub {
+  color: @theme_dim_text;
+  font-size: 0.923em;
+  font-feature-settings: "tnum";
+}
+
+window.home-window .drawer-body {
+  padding: 4px 14px 12px;
+}
+
+window.home-window .drawer-label-row {
+  margin: 12px 2px 6px;
+}
+
+window.home-window .drawer-label {
+  color: @theme_dim_text;
+  font-size: 0.885em;
+  font-weight: 500;
+}
+
+window.home-window .drawer-card {
+  border-radius: var(--nyx-radius-card);
+  background: @theme_card;
+  box-shadow: inset 0 0 0 1px alpha(@theme_border, 0.6);
+}
+
+window.home-window .drawer-row {
+  min-height: 46px;
+  padding: 4px 12px 4px 10px;
+}
+
+window.home-window .drawer-row + .drawer-row {
+  border-top: 1px solid alpha(@theme_border, 0.5);
+}
+
+window.home-window .drawer-row image.chip,
+window.home-window .robot-row image.chip {
+  -gtk-icon-size: 15px;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 999px;
+}
+
+window.home-window .row-name {
+  font-weight: 500;
+}
+
+window.home-window .row-state {
+  color: @theme_dim_text;
+  font-size: 0.846em;
+  font-feature-settings: "tnum";
+}
+
+window.home-window .drawer-foot {
+  padding: 10px 14px;
+  border-top: 1px solid @sheet_line;
+}
+
+window.home-window .robot-row {
+  padding: 10px 12px;
+  border-radius: var(--nyx-radius-card);
+  background: @theme_card;
+  box-shadow: inset 0 0 0 1px alpha(@theme_border, 0.6);
+}
+
+/* ---------- The camera wall ---------- */
+
+window.home-window .camera-tile {
+  border-radius: var(--nyx-radius-card);
+  background: @theme_card;
+}
+
+window.home-window .camera-blank {
+  border-radius: var(--nyx-radius-card);
+}
+
+window.home-window .camera-blank image {
+  color: alpha(white, 0.75);
+}
+
+window.home-window .camera-shade {
+  padding: 26px 12px 10px;
+  background: linear-gradient(to bottom, transparent, alpha(black, 0.62));
+  color: white;
+}
+
+window.home-window .camera-name {
+  font-weight: 600;
+}
+
+window.home-window .camera-line,
+window.home-window .camera-power {
+  font-size: 0.846em;
+  opacity: 0.85;
+}
+
+window.home-window button.camera-live {
+  background: alpha(white, 0.16);
+  color: white;
+}
+
+window.home-window button.camera-live:hover {
+  background: alpha(white, 0.26);
+}
+
+window.home-window .camera-note {
+  margin-top: 14px;
+  color: @theme_text_tertiary;
+  font-size: 0.923em;
+}
+
+window.home-window .camera-note image {
+  -gtk-icon-size: 14px;
 }

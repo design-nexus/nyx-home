@@ -119,8 +119,8 @@ fn page() -> (gtk::Widget, gtk::Box) {
     );
     rooms.append(&all);
     let (overview, _) = widgets::button_row(
-        "Overview sections",
-        "Reorder or hide the sections on Overview.",
+        "Home sections",
+        "Reorder or hide the sections on Home.",
         "Customize…",
         |_| {
             settings_card::close();

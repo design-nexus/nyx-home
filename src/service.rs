@@ -6,6 +6,9 @@ use tokio::sync::OnceCell;
 use zbus::zvariant::{DynamicType, Type};
 
 async fn proxy() -> Result<zbus::Proxy<'static>, String> {
+    if crate::demo::active() {
+        return Err("The demo doesn't use the desktop automation service.".into());
+    }
     static CONNECTION: OnceCell<zbus::Connection> = OnceCell::const_new();
     let connection = CONNECTION
         .get_or_try_init(zbus::Connection::session)

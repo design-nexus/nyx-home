@@ -46,6 +46,14 @@ pub fn load(entity_id: &str, done: impl FnOnce(Result<gdk::Texture, String>) + '
     if !first {
         return;
     }
+    if crate::demo::active() {
+        let id = entity.entity_id;
+        glib::idle_add_local_once(move || {
+            let texture = crate::demo::picture(&id);
+            loaded(id, texture);
+        });
+        return;
+    }
     rt::spawn(
         async move {
             let bytes = ha::fetch_entity_picture(&base, &token, &entity).await;
@@ -56,20 +64,25 @@ pub fn load(entity_id: &str, done: impl FnOnce(Result<gdk::Texture, String>) + '
                 gdk::Texture::from_bytes(&glib::Bytes::from(&bytes))
                     .map_err(|_| "Couldn't read the image.".to_string())
             });
-            if let (Ok(texture), Some(app)) = (&texture, app::get()) {
-                app.home
-                    .borrow_mut()
-                    .previews
-                    .insert(id.clone(), texture.clone());
-            }
-            let waiting = PENDING
-                .with(|p| p.borrow_mut().remove(&id))
-                .unwrap_or_default();
-            for done in waiting {
-                done(texture.clone());
-            }
+            loaded(id, texture);
         },
     );
+}
+
+/// Keep a loaded picture and hand it to everyone waiting for it.
+fn loaded(id: String, texture: Result<gdk::Texture, String>) {
+    if let (Ok(texture), Some(app)) = (&texture, app::get()) {
+        app.home
+            .borrow_mut()
+            .previews
+            .insert(id.clone(), texture.clone());
+    }
+    let waiting = PENDING
+        .with(|p| p.borrow_mut().remove(&id))
+        .unwrap_or_default();
+    for done in waiting {
+        done(texture.clone());
+    }
 }
 
 fn cached(entity_id: &str) -> Option<gdk::Texture> {
@@ -138,6 +151,35 @@ pub fn thumbnail(entity_id: &str, title: &str, height: i32) -> gtk::Button {
         );
     });
     button
+}
+
+/// An entity's picture filling whatever holds it, for a camera wall's tile.
+/// It loads once per session, like a thumbnail.
+pub fn still(entity_id: &str) -> gtk::Widget {
+    let picture = gtk::Picture::new();
+    picture.set_can_shrink(true);
+    picture.set_content_fit(gtk::ContentFit::Cover);
+    let loading = PENDING.with(|p| p.borrow().contains_key(entity_id));
+    match cached(entity_id) {
+        Some(texture) => picture.set_paintable(Some(&texture)),
+        None if loading || !REQUESTED.with(|r| r.borrow().contains(entity_id)) => {
+            let weak = picture.downgrade();
+            load(entity_id, move |result| {
+                if let (Ok(texture), Some(picture)) = (result, weak.upgrade()) {
+                    picture.set_paintable(Some(&texture));
+                }
+            });
+        }
+        None => {}
+    }
+    // A picture asks for its full pixel size; this keeps the tile's own.
+    let clip = gtk::ScrolledWindow::new();
+    clip.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Never);
+    clip.set_propagate_natural_width(false);
+    clip.set_propagate_natural_height(false);
+    clip.set_child(Some(&picture));
+    clip.set_can_target(false);
+    clip.upcast()
 }
 
 /// Called with the new picture after a refresh.
