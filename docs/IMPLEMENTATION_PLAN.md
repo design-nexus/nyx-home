@@ -25,8 +25,10 @@
 - **Phase 6:** Camera and image still previews, capability-gated vacuum and lawn
   mower controls, mapped vacuum area selection, energy/power sensor views,
   device-health indicators, and reordered/hidden Overview sections.
-- **Phase 7 (UI, fixes, accessibility, packaging):** see below. Assistant
-  integration was left for later.
+- **Phase 7 (UI, fixes, accessibility, packaging):** see below.
+- **Assistant and `nyx home`:** `nyx-homed` serves eight actions (devices, lights,
+  switches, climate, scenes, routines, run, open) to Nyx Assistant, Glimpse and the
+  `nyx` command (`src/bin/homed/actions.rs`).
 
 ## Phase 7: what changed
 
