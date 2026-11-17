@@ -5,6 +5,8 @@ separate desktop automation engine. Home Assistant remains the smart-home backen
 
 ## Install
 
+On NyxOS, choose Home in Welcome when you set up, or install it later from the Store or with `nyx install nyx-home`. On Omarchy:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/design-nexus/nyx-home/main/install.sh | bash
 ```
